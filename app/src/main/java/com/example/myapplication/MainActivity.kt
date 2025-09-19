@@ -4,18 +4,17 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.Alignment
-import java.text.NumberFormat
-import java.util.Locale
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
-
+import androidx.compose.ui.unit.dp
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,14 +25,20 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun WalletScreen() {
-    // --- Estado (se conserva en recomposiciones y rotación) ---
+    // --- Estado ---
     var destinatario by remember { mutableStateOf("") }
-    var montoTexto by remember { mutableStateOf("") }
-    var saldo by remember { mutableStateOf(2000.0) }        // saldo inicial
-    var mensaje by remember { mutableStateOf("") }          // para decir a quien
-    var error by remember { mutableStateOf<String?>(null) } // mensaje de error
+    var montoTexto by remember { mutableStateOf("") }            // monto a enviar (texto)
+    var saldoTexto by remember { mutableStateOf("2000.00") }     // saldo editable (texto)
+    var mensaje by remember { mutableStateOf("") }               // “Se envió…”
+    var error by remember { mutableStateOf<String?>(null) }      // mensaje de error
 
+    // Helpers
     fun soles(v: Double) = "S/ " + String.format(Locale.US, "%,.2f", v)
+    fun parseDoubleOrNull(s: String): Double? =
+        s.trim().replace(",", ".").toDoubleOrNull()
+
+    // Saldo numérico derivado del texto (si es inválido, tratamos como 0.0)
+    val saldoActual = parseDoubleOrNull(saldoTexto) ?: 0.0
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -42,45 +47,61 @@ fun WalletScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(text = "Billetera")
-            // Monto actual
+            Text("Billetera", style = MaterialTheme.typography.headlineSmall)
+
+            // --- Saldo editable ---
             OutlinedTextField(
-                value = soles(saldo),
-                onValueChange = {},
-                label = { Text("Monto actual") },
-                enabled = false,
+                value = saldoTexto,
+                onValueChange = { nuevo ->
+                    // Permite: dígitos, opcional separador . o , y hasta 2 decimales
+                    if (nuevo.matches(Regex("""\d*([.,]\d{0,2})?"""))) {
+                        saldoTexto = nuevo
+                    }
+                },
+                label = { Text("Monto actual (S/)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Next
+                ),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Nombre destinatario
+            // --- Nombre destinatario ---
             OutlinedTextField(
                 value = destinatario,
                 onValueChange = { destinatario = it },
                 label = { Text("Nombre destinatario") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Monto a enviar
+            // --- Monto a enviar ---
             OutlinedTextField(
                 value = montoTexto,
-                onValueChange = { montoTexto = it },
-                label = { Text("Monto a enviar S/") },
+                onValueChange = { input ->
+                    if (input.matches(Regex("""\d*([.,]\d{0,2})?"""))) {
+                        montoTexto = input
+                    }
+                },
+                label = { Text("Monto a enviar (S/)") },
                 singleLine = true,
-                //keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-                isError = error != null
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                isError = error != null,
+                supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } },
+                modifier = Modifier.fillMaxWidth()
             )
-            if (error != null) {
-                Text(text = error!!, color = MaterialTheme.colorScheme.error)
-            }
 
-            // btn registrar
+            // --- Botón registrar ---
             Button(
                 onClick = {
                     error = null
 
-                    val monto = montoTexto.replace(",", ".").toDoubleOrNull()
+                    val monto = parseDoubleOrNull(montoTexto)
                     when {
                         destinatario.isBlank() -> {
                             error = "Ingresa el nombre del destinatario."
@@ -91,14 +112,18 @@ fun WalletScreen() {
                         monto <= 0.0 -> {
                             error = "El monto debe ser mayor que 0."
                         }
-                        monto > saldo -> {
-                            error = "Fondos insuficientes. Saldo: ${soles(saldo)}"
+                        monto > saldoActual -> {
+                            error = "Fondos insuficientes. Saldo: ${soles(saldoActual)}"
                         }
                         else -> {
-                            saldo -= monto
+                            // Actualiza saldo (y refleja en el campo de texto)
+                            val nuevoSaldo = saldoActual - monto
+                            saldoTexto = String.format(Locale.US, "%.2f", nuevoSaldo)
+
+                            // Mensaje de confirmación
                             mensaje = "Se envió: $destinatario – ${soles(monto)}"
-                            // opcional: limpiar campos
-                            // destinatario = ""
+
+                            // Limpia monto a enviar (opcional, también podrías limpiar destinatario)
                             montoTexto = ""
                         }
                     }
@@ -110,14 +135,17 @@ fun WalletScreen() {
                 Text("REGISTRAR")
             }
 
-            // Mensaje inferior
+            // --- Mensaje inferior ---
             if (mensaje.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Text(text = mensaje, style = MaterialTheme.typography.bodyLarge)
+                Text(mensaje, style = MaterialTheme.typography.bodyLarge)
             }
+
+
         }
     }
 }
+
 @Preview(showBackground = true)
 @Composable
 fun WalletScreenPreview() {
