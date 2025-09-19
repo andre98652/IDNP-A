@@ -1,4 +1,4 @@
-** Integrantes:
+Integrantes:
 
 - Delgado Allpan Andre David
 - Hilacondo Begazo Andre Jimmy
